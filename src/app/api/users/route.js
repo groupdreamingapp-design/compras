@@ -20,6 +20,10 @@ export async function GET() {
         return NextResponse.json(users);
     } catch (error) {
         console.error('Error fetching users from Firestore:', error);
-        return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
+        return NextResponse.json({
+            error: 'Failed to fetch users',
+            details: error.message,
+            initialized: !!adminDb
+        }, { status: 500 });
     }
 }
