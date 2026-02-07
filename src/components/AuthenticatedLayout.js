@@ -1,4 +1,5 @@
 'use client';
+import React, { useState } from 'react';
 
 import Sidebar from './Sidebar';
 import { Bell, User, LayoutDashboard, PieChart, Search, HelpCircle } from 'lucide-react';
@@ -11,7 +12,7 @@ import ManualUsuarioModal from './ManualUsuarioModal';
 export default function AuthenticatedLayout({ children }) {
     const { currentUser, loading } = useUser();
     const pathname = usePathname();
-    const [isManualOpen, setIsManualOpen] = React.useState(false);
+    const [isManualOpen, setIsManualOpen] = useState(false);
 
     if (loading) return <div className="flex h-screen items-center justify-center text-slate-400">Cargando...</div>;
 
