@@ -1,10 +1,12 @@
 
 "use client";
 import React, { useState, useEffect } from 'react';
-import { TrendingUp, Plus, Search, Filter, MessageSquare, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
+import { TrendingUp, Plus, Search, Filter, MessageSquare, Clock, CheckCircle2, ChevronRight, Hash } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import NuevaLicitacionModal from '@/components/licitaciones/NuevaLicitacionModal';
 
 export default function LicitacionesPage() {
+    const router = useRouter();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [licitaciones, setLicitaciones] = useState([
@@ -97,7 +99,11 @@ export default function LicitacionesPage() {
                         </thead>
                         <tbody className="divide-y divide-slate-800">
                             {filteredLicitaciones.map((licitacion) => (
-                                <tr key={licitacion.id} className="hover:bg-slate-800/30 transition-colors group">
+                                <tr
+                                    key={licitacion.id}
+                                    onClick={() => router.push(`/compras/licitaciones/${licitacion.id}`)}
+                                    className="hover:bg-slate-800/30 transition-colors group cursor-pointer"
+                                >
                                     <td className="px-6 py-4">
                                         <span className="text-xs font-mono text-blue-400 bg-blue-500/5 px-2 py-1 rounded border border-blue-500/10">
                                             {licitacion.id}
