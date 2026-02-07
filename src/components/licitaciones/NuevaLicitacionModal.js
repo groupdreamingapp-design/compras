@@ -1,14 +1,33 @@
-
 "use client";
 import React, { useState } from 'react';
-import { X, Send, Users, Package, DollarSign, Calendar } from 'lucide-react';
+import { X, Send, Users, Package, DollarSign, Calendar, Plus, Trash2 } from 'lucide-react';
 
 export default function NuevaLicitacionModal({ isOpen, onClose }) {
+    const [selectedProducts, setSelectedProducts] = useState([]);
+    const [currentProduct, setCurrentProduct] = useState('');
+    const [currentQuantity, setCurrentQuantity] = useState('');
+
     if (!isOpen) return null;
+
+    const addProduct = () => {
+        if (currentProduct && currentQuantity) {
+            setSelectedProducts([...selectedProducts, {
+                id: Date.now(),
+                nombre: currentProduct,
+                cantidad: currentQuantity
+            }]);
+            setCurrentProduct('');
+            setCurrentQuantity('');
+        }
+    };
+
+    const removeProduct = (id) => {
+        setSelectedProducts(selectedProducts.filter(p => p.id !== id));
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
                 <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/20">
                     <div className="flex items-center space-x-3">
                         <div className="p-2 bg-blue-500/10 rounded-xl">
@@ -21,44 +40,84 @@ export default function NuevaLicitacionModal({ isOpen, onClose }) {
                     </button>
                 </div>
 
-                <div className="p-8 space-y-6">
-                    {/* Producto Insumo */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-300 flex items-center">
-                            <Package className="w-4 h-4 mr-2 text-blue-400" />
-                            Seleccionar Insumo
-                        </label>
-                        <select className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all appearance-none cursor-pointer">
-                            <option>Elija un producto...</option>
-                            <option>Harina 0000 x 25kg</option>
-                            <option>Aceite de Girasol 10L</option>
-                            <option>Queso Mozzarella x 5kg</option>
-                            <option>Levadura Fresca x 500g</option>
-                        </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-6">
+                <div className="p-8 space-y-6 overflow-y-auto flex-1">
+                    {/* Selector de Producto */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-800/30 p-4 rounded-2xl border border-slate-800">
+                        <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-300 flex items-center">
+                                <Package className="w-4 h-4 mr-2 text-blue-400" />
+                                Agregar Producto
+                            </label>
+                            <select
+                                value={currentProduct}
+                                onChange={(e) => setCurrentProduct(e.target.value)}
+                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all appearance-none cursor-pointer text-sm"
+                            >
+                                <option value="">Seleccione...</option>
+                                <option>Harina 0000 x 25kg</option>
+                                <option>Aceite de Girasol 10L</option>
+                                <option>Queso Mozzarella x 5kg</option>
+                                <option>Levadura Fresca x 500g</option>
+                            </select>
+                        </div>
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-slate-300 flex items-center">
                                 <DollarSign className="w-4 h-4 mr-2 text-green-400" />
-                                Cantidad Estimada
+                                Cantidad
                             </label>
-                            <input
-                                type="text"
-                                placeholder="Ej: 100 unidades"
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
-                            />
+                            <div className="flex space-x-2">
+                                <input
+                                    type="text"
+                                    value={currentQuantity}
+                                    onChange={(e) => setCurrentQuantity(e.target.value)}
+                                    placeholder="Ej: 10 bultos"
+                                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                                />
+                                <button
+                                    onClick={addProduct}
+                                    className="p-2 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition-colors"
+                                >
+                                    <Plus className="w-5 h-5" />
+                                </button>
+                            </div>
                         </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-semibold text-slate-300 flex items-center">
-                                <Calendar className="w-4 h-4 mr-2 text-purple-400" />
-                                Fecha Límite
-                            </label>
-                            <input
-                                type="date"
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
-                            />
+                    </div>
+
+                    {/* Lista de Productos Seleccionados */}
+                    {selectedProducts.length > 0 && (
+                        <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-widest px-1">Productos en la Solicitud</label>
+                            <div className="space-y-2">
+                                {selectedProducts.map((p) => (
+                                    <div key={p.id} className="flex items-center justify-between p-3 bg-slate-800/50 border border-slate-700 rounded-xl group transition-all hover:border-slate-600">
+                                        <div className="flex items-center space-x-4">
+                                            <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                                            <div>
+                                                <div className="text-sm font-medium text-white">{p.nombre}</div>
+                                                <div className="text-xs text-slate-500">Cantidad: {p.cantidad}</div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => removeProduct(p.id)}
+                                            className="p-2 text-slate-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
+                    )}
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-300 flex items-center">
+                            <Calendar className="w-4 h-4 mr-2 text-purple-400" />
+                            Fecha Límite para Ofertas
+                        </label>
+                        <input
+                            type="date"
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all"
+                        />
                     </div>
 
                     {/* Seleccion de Proveedores */}
@@ -85,7 +144,10 @@ export default function NuevaLicitacionModal({ isOpen, onClose }) {
                     >
                         Cancelar
                     </button>
-                    <button className="px-8 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center">
+                    <button
+                        disabled={selectedProducts.length === 0}
+                        className="px-8 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                    >
                         <Send className="w-4 h-4 mr-2" />
                         Lanzar Licitación
                     </button>
