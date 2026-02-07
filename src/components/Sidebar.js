@@ -14,12 +14,12 @@ export function cn(...inputs) {
 const adminItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard, color: 'text-blue-500' },
     { name: 'Gestor Compras', href: '/compras/ordenes', icon: ShoppingBag, color: 'text-indigo-500' },
+    { name: 'Licitaciones', href: '/compras/licitaciones', icon: TrendingUp, color: 'text-cyan-500' },
     { name: 'Producción', href: '/produccion/recetas', icon: Utensils, color: 'text-orange-500' },
     { name: 'Simulador POS', href: '/produccion/ventas', icon: ShoppingBag, color: 'text-sky-400' },
-    { name: 'Rentabilidad', href: '/produccion/rentabilidad', icon: PieChart, color: 'text-amber-500' },
     { name: 'Recepción', href: '/compras/recepcion', icon: ShieldCheck, color: 'text-green-500' },
     { name: 'Facturación', href: '/compras/factura', icon: Settings, color: 'text-yellow-500' },
-    { name: 'Estrategia', href: '/estrategia', icon: TrendingUp, color: 'text-pink-500' },
+    { name: 'Estrategia', href: '/estrategia', icon: PieChart, color: 'text-pink-500' },
     { name: 'Maestros', href: '/configuracion/maestros', icon: Settings, color: 'text-slate-400' },
     { name: 'Auditoría', href: '/auditoria', icon: Search, color: 'text-purple-500' },
 ];
