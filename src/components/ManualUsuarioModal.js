@@ -1,10 +1,9 @@
-
 "use client";
 import React, { useState } from 'react';
 import {
     X, BookOpen, LayoutDashboard, ShoppingBag,
     TrendingUp, ShieldCheck, PieChart, Info,
-    CheckCircle, ArrowRight, MousePointer2, HelpCircle
+    CheckCircle, ArrowRight, MousePointer2, HelpCircle, Utensils
 } from 'lucide-react';
 
 export default function ManualUsuarioModal({ isOpen, onClose }) {
