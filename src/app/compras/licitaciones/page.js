@@ -6,11 +6,17 @@ import NuevaLicitacionModal from '@/components/licitaciones/NuevaLicitacionModal
 
 export default function LicitacionesPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [licitaciones, setLicitaciones] = useState([
-        { id: 1, producto: 'Harina 0000 x 25kg', status: 'abierta', fecha: '2026-02-07', ofertas: 3, mejorPrecio: '$12,500' },
-        { id: 2, producto: 'Aceite Girasol 10L', status: 'cerrada', fecha: '2026-02-05', ofertas: 5, mejorPrecio: '$8,200', ganador: 'Distribuidora Norte' },
-        { id: 3, producto: 'Mozzarella Trozada x 5kg', status: 'pendiente', fecha: '2026-02-07', ofertas: 1, mejorPrecio: '$22,000' },
+        { id: 'LIC-2026-001', producto: 'Harina 0000 x 25kg, Levadura Fresca', status: 'abierta', fecha: '2026-02-07', ofertas: 3, mejorPrecio: '$12,500' },
+        { id: 'LIC-2026-002', producto: 'Aceite Girasol 10L', status: 'cerrada', fecha: '2026-02-05', ofertas: 5, mejorPrecio: '$8,200', ganador: 'Distribuidora Norte' },
+        { id: 'LIC-2026-003', producto: 'Mozzarella Trozada x 5kg', status: 'pendiente', fecha: '2026-02-07', ofertas: 1, mejorPrecio: '$22,000' },
     ]);
+
+    const filteredLicitaciones = licitaciones.filter(lic =>
+        lic.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lic.producto.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     return (
         <div className="space-y-8">
@@ -33,6 +39,7 @@ export default function LicitacionesPage() {
 
             {/* Stats Summary */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* ... (stats content remains same) ... */}
                 <div className="glass-card p-6 rounded-2xl relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:scale-110 transition-transform">
                         <TrendingUp className="w-12 h-12 text-blue-500" />
@@ -63,7 +70,9 @@ export default function LicitacionesPage() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                             <input
                                 type="text"
-                                placeholder="Buscar licitación o producto..."
+                                placeholder="Buscar por ID (LIC-...) o producto..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
                             />
                         </div>
@@ -77,6 +86,7 @@ export default function LicitacionesPage() {
                     <table className="w-full text-left">
                         <thead className="bg-slate-800/30 text-slate-400 text-xs uppercase tracking-wider">
                             <tr>
+                                <th className="px-6 py-4 font-semibold">ID</th>
                                 <th className="px-6 py-4 font-semibold">Producto / Insumo</th>
                                 <th className="px-6 py-4 font-semibold">Estado</th>
                                 <th className="px-6 py-4 font-semibold">Fecha</th>
@@ -86,8 +96,13 @@ export default function LicitacionesPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800">
-                            {licitaciones.map((licitacion) => (
+                            {filteredLicitaciones.map((licitacion) => (
                                 <tr key={licitacion.id} className="hover:bg-slate-800/30 transition-colors group">
+                                    <td className="px-6 py-4">
+                                        <span className="text-xs font-mono text-blue-400 bg-blue-500/5 px-2 py-1 rounded border border-blue-500/10">
+                                            {licitacion.id}
+                                        </span>
+                                    </td>
                                     <td className="px-6 py-4">
                                         <div className="text-sm font-medium text-white">{licitacion.producto}</div>
                                         {licitacion.ganador && (
