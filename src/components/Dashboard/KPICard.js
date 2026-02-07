@@ -10,8 +10,8 @@ export default function KPICard({ title, value, trend, trendValue, trendLabel, c
     const TrendIcon = isPositive ? ArrowUpRight : isNegative ? ArrowDownRight : Minus;
 
     return (
-        <div className="glass-card p-6 rounded-2xl relative overflow-hidden group">
-            <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity bg-${color}-500/20 rounded-bl-3xl`}>
+        <div className="glass-card p-6 rounded-2xl relative group">
+            <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity bg-${color}-500/20 rounded-tr-2xl rounded-bl-3xl`}>
                 {Icon && <Icon className={`w-12 h-12 text-${color}-400`} />}
             </div>
 
