@@ -11,10 +11,6 @@ const nextConfig = {
     },
     // Silenciamos el error de conflicto entre Webpack y Turbopack según la sugerencia de los logs
     turbopack: {},
-    experimental: {
-        // Mantenemos esto por compatibilidad con versiones anteriores
-        turbopack: {},
-    },
 };
 
 export default nextConfig;
