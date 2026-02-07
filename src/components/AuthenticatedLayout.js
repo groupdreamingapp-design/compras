@@ -28,7 +28,7 @@ export default function AuthenticatedLayout({ children }) {
 
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Header */}
-                <header className="flex h-20 items-center justify-between px-8 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm z-0">
+                <header className="flex h-20 items-center justify-between px-8 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm relative z-10">
                     <div className="flex items-center space-x-12">
                         <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent shrink-0">
                             GESTIÓN DE COMPRA
@@ -87,7 +87,7 @@ export default function AuthenticatedLayout({ children }) {
                 </header>
 
                 {/* Main Content */}
-                <main className="flex-1 overflow-y-auto p-8 relative z-1">
+                <main className="flex-1 overflow-y-auto p-8 relative z-20">
                     {/* Abstract decorative background */}
                     <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-blue-900/10 to-transparent pointer-events-none" />
                     <div className="relative z-0">
