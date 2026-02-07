@@ -1,7 +1,6 @@
 
 "use client";
 import React, { useState, useEffect } from 'react';
-import { adminDb } from '@/lib/firebaseAdmin'; // Note: Client side cannot use adminDb directly
 import { TrendingUp, Plus, Search, Filter, MessageSquare, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
 import NuevaLicitacionModal from '@/components/licitaciones/NuevaLicitacionModal';
 
