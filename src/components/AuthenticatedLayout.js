@@ -1,15 +1,17 @@
 'use client';
 
 import Sidebar from './Sidebar';
-import { Bell, User, LayoutDashboard, PieChart, Search } from 'lucide-react';
+import { Bell, User, LayoutDashboard, PieChart, Search, HelpCircle } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import UserSwitcher from './UserSwitcher';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import ManualUsuarioModal from './ManualUsuarioModal';
 
 export default function AuthenticatedLayout({ children }) {
     const { currentUser, loading } = useUser();
     const pathname = usePathname();
+    const [isManualOpen, setIsManualOpen] = React.useState(false);
 
     if (loading) return <div className="flex h-screen items-center justify-center text-slate-400">Cargando...</div>;
 
@@ -40,8 +42,8 @@ export default function AuthenticatedLayout({ children }) {
                                         key={item.name}
                                         href={item.href}
                                         className={`flex items-center px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive
-                                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                                            : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
                                             }`}
                                     >
                                         <item.icon className={`w-4 h-4 mr-2 ${isActive ? 'text-white' : 'text-slate-500'}`} />
@@ -53,6 +55,15 @@ export default function AuthenticatedLayout({ children }) {
                     </div>
 
                     <div className="flex items-center space-x-6">
+                        <button
+                            onClick={() => setIsManualOpen(true)}
+                            className="flex items-center space-x-2 p-2 px-3 text-slate-400 hover:text-white transition-all bg-slate-800/40 hover:bg-slate-800 rounded-xl border border-slate-700/50 group"
+                            title="Manual de Usuario"
+                        >
+                            <HelpCircle className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                            <span className="text-xs font-bold uppercase tracking-wider hidden sm:block">Manual</span>
+                        </button>
+
                         <button className="relative p-2 text-slate-400 hover:text-white transition-colors">
                             <Bell className="w-6 h-6" />
                             <span className="absolute top-1 right-1 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-slate-900" />
@@ -83,6 +94,9 @@ export default function AuthenticatedLayout({ children }) {
                     </div>
                 </main>
             </div>
+
+            {/* User Manual Modal */}
+            <ManualUsuarioModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
         </div>
     );
 }
