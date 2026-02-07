@@ -17,7 +17,7 @@ export default function KPICard({ title, value, trend, trendValue, trendLabel, c
 
             <div className="mb-2">
                 {tooltip ? (
-                    <Tooltip content={tooltip}>
+                    <Tooltip content={tooltip} placement="bottom">
                         <h3 className="text-slate-400 text-sm font-medium cursor-help inline-block decoration-slate-600 underline decoration-dashed underline-offset-4">{title}</h3>
                     </Tooltip>
                 ) : (
