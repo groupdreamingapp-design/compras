@@ -79,7 +79,7 @@ export default function ManualUsuarioModal({ isOpen, onClose }) {
                             >
                                 <Step number="1" title="Órdenes de Compra">
                                     Genera pedidos automáticos basados en sugerencias de stock o manuales.
-                                    <span className="block mt-1 text-slate-500">Ubicación: Sidebar > Compras > Gestor Compras.</span>
+                                    <span className="block mt-1 text-slate-500">Ubicación: Sidebar &gt; Compras &gt; Gestor Compras.</span>
                                 </Step>
                                 <Step number="2" title="Licitaciones">
                                     Envía solicitudes de precios a múltiples proveedores. Permite comparar costos para bajar el CMV.
