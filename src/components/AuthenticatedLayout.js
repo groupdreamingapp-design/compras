@@ -1,14 +1,23 @@
 'use client';
 
 import Sidebar from './Sidebar';
-import { Bell, User } from 'lucide-react';
+import { Bell, User, LayoutDashboard, PieChart, Search } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import UserSwitcher from './UserSwitcher';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 export default function AuthenticatedLayout({ children }) {
     const { currentUser, loading } = useUser();
+    const pathname = usePathname();
 
     if (loading) return <div className="flex h-screen items-center justify-center text-slate-400">Cargando...</div>;
+
+    const analysisItems = [
+        { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+        { name: 'Estrategia', href: '/estrategia', icon: PieChart },
+        { name: 'Auditoría', href: '/auditoria', icon: Search },
+    ];
 
     return (
         <div className="flex h-screen overflow-hidden">
@@ -17,9 +26,31 @@ export default function AuthenticatedLayout({ children }) {
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Header */}
                 <header className="flex h-20 items-center justify-between px-8 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm z-10">
-                    <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
-                        GESTIÓN DE COMPRA
-                    </h1>
+                    <div className="flex items-center space-x-12">
+                        <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent shrink-0">
+                            GESTIÓN DE COMPRA
+                        </h1>
+
+                        {/* Analysis Menu */}
+                        <nav className="hidden lg:flex items-center bg-slate-800/40 p-1 rounded-xl border border-slate-700/50">
+                            {analysisItems.map((item) => {
+                                const isActive = pathname === item.href;
+                                return (
+                                    <Link
+                                        key={item.name}
+                                        href={item.href}
+                                        className={`flex items-center px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${isActive
+                                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                                            }`}
+                                    >
+                                        <item.icon className={`w-4 h-4 mr-2 ${isActive ? 'text-white' : 'text-slate-500'}`} />
+                                        {item.name}
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+                    </div>
 
                     <div className="flex items-center space-x-6">
                         <button className="relative p-2 text-slate-400 hover:text-white transition-colors">
