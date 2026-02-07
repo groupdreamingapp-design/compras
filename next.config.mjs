@@ -9,6 +9,10 @@ const nextConfig = {
         }
         return config;
     },
+    // Silenciamos el error de conflicto entre Webpack y Turbopack
+    experimental: {
+        turbopack: {},
+    },
 };
 
 export default nextConfig;
