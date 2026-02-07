@@ -9,12 +9,21 @@ import { getFirestore } from 'firebase-admin/firestore';
 if (!getApps().length) {
     if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
         try {
-            const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+            let keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim();
+
+            // Handle cases where the key might be wrapped in single quotes in the env provider
+            if (keyString.startsWith("'") && keyString.endsWith("'")) {
+                keyString = keyString.substring(1, keyString.length - 1).trim();
+            }
+
+            const serviceAccount = JSON.parse(keyString);
             initializeApp({
                 credential: cert(serviceAccount)
             });
         } catch (e) {
-            console.error("Error parsing FIREBASE_SERVICE_ACCOUNT_KEY:", e);
+            console.error("Error parsing FIREBASE_SERVICE_ACCOUNT_KEY:", e.message);
+            console.error("Value length:", process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.length);
+            console.error("Starts with:", process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.substring(0, 10));
         }
     } else {
         console.warn("FIREBASE_SERVICE_ACCOUNT_KEY not set. Firebase Admin not initialized.");

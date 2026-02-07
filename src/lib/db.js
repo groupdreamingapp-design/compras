@@ -1,7 +1,5 @@
-import initSqlJs from 'sql.js';
 import fs from 'fs';
 import path from 'path';
-
 import { fileURLToPath } from 'url';
 
 // Singleton instance container
@@ -18,11 +16,13 @@ async function getDb() {
 
   if (!fs.existsSync(wasmPath)) {
     console.error("WASM file not found at:", wasmPath);
-    // Fallback try to find it in local node_modules if path resolution is off
     throw new Error(`WASM file not found at ${wasmPath}`);
   }
 
   const wasmBinary = fs.readFileSync(wasmPath);
+
+  // Carga como dependencia externa de Node para evitar conflictos con Webpack
+  const initSqlJs = require('sql.js');
   const SQL = await initSqlJs({ wasmBinary });
 
   let buffer;
@@ -64,7 +64,6 @@ export const dbQuery = {
         }
         stmt.free();
         return res;
-        return res;
       },
       get: async (...params) => {
         const db = await getDb();
@@ -81,7 +80,6 @@ export const dbQuery = {
         const db = await getDb();
         db.run(sql, params);
         // Return object mimicking better-sqlite3
-        // We need to fetch lastInsertRowid manually
         const res = db.exec("SELECT last_insert_rowid()");
         const id = res[0] && res[0].values[0] ? res[0].values[0][0] : 0;
         return { lastInsertRowid: id };
@@ -93,13 +91,11 @@ export const dbQuery = {
     db.exec(sql);
   },
   transaction: (fn) => {
-    // sql.js doesn't support transaction objects same way, just run fn
-    // We can wrap in BEGIN/COMMIT manually
     return async () => {
       const db = await getDb();
       db.exec("BEGIN TRANSACTION");
       try {
-        await fn(); // Fn must potentially be async now
+        await fn();
         db.exec("COMMIT");
         saveDb();
       } catch (e) {

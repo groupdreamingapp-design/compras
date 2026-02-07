@@ -26,6 +26,25 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# firebase and secrets
+studio-*.json
+firebase-debug.log*
+
+# databases
+*.db
+*.sqlite
+
+# debug and logs
+*.log
+dev.log
+
+# test and utility scripts
+test-*.mjs
+inspect-*.mjs
+inspect_*.mjs
+verify_*.mjs
+list_*.mjs
+
 # vercel
 .vercel
 
