@@ -1,4 +1,3 @@
-
 import { adminDb } from '@/lib/firebaseAdmin';
 import { NextResponse } from 'next/server';
 
