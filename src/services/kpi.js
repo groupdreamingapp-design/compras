@@ -1,3 +1,5 @@
+'use server';
+
 import { adminDb as db } from '@/lib/firebaseAdmin';
 
 export async function getKPIs(startDate, endDate) {

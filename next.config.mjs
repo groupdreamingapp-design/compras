@@ -4,14 +4,21 @@ const nextConfig = {
     reactStrictMode: true,
     // Forzamos el uso de Webpack para evitar bloqueos de Turbopack en este entorno
     webpack: (config, { isServer }) => {
-        if (isServer) {
+        if (!isServer) {
+            // Ignorar módulos de Node.js en el cliente para evitar errores con firebase-admin
+            config.resolve.fallback = {
+                ...config.resolve.fallback,
+                fs: false,
+                net: false,
+                tls: false,
+                child_process: false,
+            };
+        } else {
             config.externals.push('sql.js');
         }
         return config;
     },
-    // Forzamos la raíz del proyecto para evitar errores de detección de workspace
-    outputFileTracingRoot: 'C:\\Users\\Juan Correa Casabo\\Documents\\Perfil compras',
-    // Silenciamos el error de conflicto entre Webpack y Turbopack según la sugerencia de los logs
+    // Eliminamos outputFileTracingRoot absoluto que falla en Vercel
     turbopack: {},
 };
 

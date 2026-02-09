@@ -1,3 +1,5 @@
+'use server';
+
 import { adminDb as db } from '@/lib/firebaseAdmin';
 import * as inventoryService from './inventory';
 
