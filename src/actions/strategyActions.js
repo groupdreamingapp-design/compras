@@ -1,115 +1,112 @@
 'use server';
 
-import db from '@/lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 
 export async function getInflationData() {
-    // 1. Identify Top 5 Items by Spend (to avoid cluttering the chart)
-    // We use Detalle_Factura * Cantidad
-    const topItems = await db.prepare(`
-        SELECT 
-            i.ID, 
-            i.Nombre,
-            SUM(df.Cantidad_Facturada * df.Precio_Unitario_Facturado) as TotalSpend
-        FROM Detalle_Factura df
-        JOIN Insumos i ON df.ID_Insumo = i.ID
-        GROUP BY i.ID
-        ORDER BY TotalSpend DESC
-        LIMIT 5
-    `).all();
+    if (!db) return { items: [], data: [] };
+    try {
+        const detailSnapshot = await db.collection('detalle_factura').get();
+        const spendMap = {};
+        detailSnapshot.forEach(doc => {
+            const d = doc.data();
+            if (!spendMap[d.ID_Insumo]) spendMap[d.ID_Insumo] = 0;
+            spendMap[d.ID_Insumo] += (d.Cantidad_Facturada * d.Precio_Unitario_Facturado);
+        });
 
-    if (topItems.length === 0) {
-        // Fallback for empty DB: Return some mock structure
-        return {
-            items: ['Lomo Vetado', 'Aceite Oliva', 'Harina 0000'],
-            data: generateMockHistory()
-        };
-    }
+        // Get Top 5 IDs
+        const topItemIds = Object.keys(spendMap)
+            .sort((a, b) => spendMap[b] - spendMap[a])
+            .slice(0, 5);
 
-    // 2. For these items, get price history
-    const itemIds = topItems.map(i => i.ID);
-    const history = await db.prepare(`
-        SELECT 
-            df.ID_Insumo,
-            i.Nombre,
-            f.Fecha_Emision as Fecha,
-            df.Precio_Unitario_Facturado as Precio_Unitario
-        FROM Detalle_Factura df
-        JOIN Facturas f ON df.ID_Factura = f.ID
-        JOIN Insumos i ON df.ID_Insumo = i.ID
-        WHERE df.ID_Insumo IN (${itemIds.join(',')})
-        ORDER BY f.Fecha_Emision ASC
-    `).all();
-
-    // 3. Process into Chart Format: { date: 'YYYY-MM', Item1: Price, Item2: Price }
-    const processedMap = new Map();
-
-    history.forEach(row => {
-        const date = new Date(row.Fecha).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }); // e.g. "ene 24"
-
-        if (!processedMap.has(date)) {
-            processedMap.set(date, { date });
+        if (topItemIds.length === 0) {
+            return { items: ['Lomo Vetado', 'Aceite Oliva', 'Harina 0000'], data: generateMockHistory() };
         }
 
-        const entry = processedMap.get(date);
-        entry[row.Nombre] = row.Precio_Unitario;
-    });
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => { insumosMap[doc.id] = doc.data().Nombre; });
 
-    // If we only have 1 data point (current), the chart will look flat/empty.
-    // Let's mix in the mock history if data is sparse (< 2 months)
-    if (processedMap.size < 2) {
+        const facturaSnapshot = await db.collection('facturas').orderBy('Fecha_Emision', 'asc').get();
+        const facturasMap = {};
+        facturaSnapshot.forEach(doc => { facturasMap[doc.id] = doc.data(); });
+
+        const chartDataMap = new Map();
+        detailSnapshot.forEach(doc => {
+            const d = doc.data();
+            if (!topItemIds.includes(d.ID_Insumo.toString())) return;
+
+            const factura = facturasMap[d.ID_Factura];
+            if (!factura) return;
+
+            const date = new Date(factura.Fecha_Emision).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' });
+            if (!chartDataMap.has(date)) {
+                chartDataMap.set(date, { date });
+            }
+            const entry = chartDataMap.get(date);
+            entry[insumosMap[d.ID_Insumo]] = d.Precio_Unitario_Facturado;
+        });
+
+        if (chartDataMap.size < 2) {
+            const names = topItemIds.map(id => insumosMap[id]);
+            return { items: names, data: generateMockHistory(names) };
+        }
+
         return {
-            items: topItems.map(i => i.Nombre),
-            data: generateMockHistory(topItems.map(i => i.Nombre))
+            items: topItemIds.map(id => insumosMap[id]),
+            data: Array.from(chartDataMap.values())
         };
+    } catch (error) {
+        console.error("Error in getInflationData:", error);
+        return { items: [], data: [] };
     }
-
-    return {
-        items: topItems.map(i => i.Nombre),
-        data: Array.from(processedMap.values())
-    };
 }
 
 export async function getABCAnalysis() {
-    // 1. Get Total Spend per Item
-    const spendData = await db.prepare(`
-        SELECT 
-            i.Nombre,
-            SUM(df.Cantidad_Facturada * df.Precio_Unitario_Facturado) as TotalValue
-        FROM Detalle_Factura df
-        JOIN Insumos i ON df.ID_Insumo = i.ID
-        GROUP BY i.ID
-        ORDER BY TotalValue DESC
-    `).all();
+    if (!db) return { items: [], summary: { a: 0, b: 0, c: 0 } };
+    try {
+        const detailSnapshot = await db.collection('detalle_factura').get();
+        const spendMap = {};
+        detailSnapshot.forEach(doc => {
+            const d = doc.data();
+            if (!spendMap[d.ID_Insumo]) spendMap[d.ID_Insumo] = 0;
+            spendMap[d.ID_Insumo] += (d.Cantidad_Facturada * d.Precio_Unitario_Facturado);
+        });
 
-    if (spendData.length === 0) return { items: [], summary: { a: 0, b: 0, c: 0 } };
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => { insumosMap[doc.id] = doc.data().Nombre; });
 
-    // 2. Calculate Cumulative Spend
-    const totalSpend = spendData.reduce((acc, curr) => acc + curr.TotalValue, 0);
-    let cumulative = 0;
+        const spendData = Object.keys(spendMap).map(id => ({
+            Nombre: insumosMap[id] || 'Insumo Desconocido',
+            TotalValue: spendMap[id]
+        })).sort((a, b) => b.TotalValue - a.TotalValue);
 
-    const classifiedItems = spendData.map(item => {
-        cumulative += item.TotalValue;
-        const percentage = (cumulative / totalSpend) * 100;
+        if (spendData.length === 0) return { items: [], summary: { a: 0, b: 0, c: 0 } };
 
-        let classification = 'C';
-        if (percentage <= 80) classification = 'A';
-        else if (percentage <= 95) classification = 'B';
+        const totalSpend = spendData.reduce((acc, curr) => acc + curr.TotalValue, 0);
+        let cumulative = 0;
 
-        return {
-            ...item,
-            cumulativePercentage: percentage,
-            classification
+        const classifiedItems = spendData.map(item => {
+            cumulative += item.TotalValue;
+            const percentage = (cumulative / totalSpend) * 100;
+            let classification = 'C';
+            if (percentage <= 80) classification = 'A';
+            else if (percentage <= 95) classification = 'B';
+
+            return { ...item, cumulativePercentage: percentage, classification };
+        });
+
+        const summary = {
+            a: classifiedItems.filter(i => i.classification === 'A').length,
+            b: classifiedItems.filter(i => i.classification === 'B').length,
+            c: classifiedItems.filter(i => i.classification === 'C').length
         };
-    });
 
-    // 3. Summarize counts
-    const summary = {
-        a: classifiedItems.filter(i => i.classification === 'A').length,
-        b: classifiedItems.filter(i => i.classification === 'B').length,
-        c: classifiedItems.filter(i => i.classification === 'C').length
-    };
-
-    return { items: classifiedItems, summary, totalSpend };
+        return { items: classifiedItems, summary, totalSpend };
+    } catch (error) {
+        console.error("Error in getABCAnalysis:", error);
+        return { items: [], summary: { a: 0, b: 0, c: 0 } };
+    }
 }
 
 function generateMockHistory(itemNames = ['Lomo Vetado', 'Salmón Rosado', 'Aceite Trufa']) {
@@ -117,9 +114,8 @@ function generateMockHistory(itemNames = ['Lomo Vetado', 'Salmón Rosado', 'Acei
     return months.map((m, idx) => {
         const entry = { date: m };
         itemNames.forEach(name => {
-            // Random price trend: Base * (1 + inflation)
             const base = 1000 + (name.length * 100);
-            const inflation = 1 + (idx * 0.05) + (Math.random() * 0.05); // 5% monthly inflation trend
+            const inflation = 1 + (idx * 0.05) + (Math.random() * 0.05);
             entry[name] = Math.round(base * inflation);
         });
         return entry;

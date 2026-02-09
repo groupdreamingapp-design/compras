@@ -1,66 +1,90 @@
 'use server';
 
-import db from '../lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 import { revalidatePath } from 'next/cache';
 
-// 1. Get Receptions that are not fully invoiced (Simplified: Not in Facturas table)
-// Ideally specific status or partial checks, but 1-to-1 matching is easier for V1.
 export async function getPendingReceptions() {
-    // Select Receptions NOT IN (SELECT ID_Recepcion_Referencia FROM Facturas)
-    // Or just all Receptions for now
-    const stmt = db.prepare(`
-        SELECT r.ID, p.Nombre_Fantasia as Proveedor, r.Numero_Remito, r.Fecha_Real_Recepcion, 
-               r.ID_Proveedor, oc.Total_Estimado -- Estimado, we should calc real value from Detalle_Recepcion
-        FROM Recepcion_Mercaderia r
-        JOIN Proveedores p ON r.ID_Proveedor = p.ID
-        JOIN Ordenes_Compra oc ON r.ID_OC_Referencia = oc.ID
-        WHERE r.ID NOT IN (SELECT COALESCE(ID_Recepcion_Referencia, 0) FROM Facturas WHERE Estado_Pago != 'Anulado')
-        ORDER BY r.Fecha_Real_Recepcion DESC
-    `);
-    const pending = await stmt.all();
+    if (!db) return [];
+    try {
+        const receptionsSnapshot = await db.collection('recepcion_mercaderia').orderBy('Fecha_Real_Recepcion', 'desc').get();
+        const invoiceSnapshot = await db.collection('facturas').where('Estado_Pago', '!=', 'Anulado').get();
+        const invoicedReceptionIds = new Set();
+        invoiceSnapshot.forEach(doc => {
+            if (doc.data().ID_Recepcion_Referencia) {
+                invoicedReceptionIds.add(doc.data().ID_Recepcion_Referencia.toString());
+            }
+        });
 
-    // Calculate Real Value for each reception (Snapshot Price * Received Qty)
-    // We need to fetch details or do a complex join. Let's do a map for simplicity or advanced SQL.
-    // Enhanced SQL:
-    /*
-    SELECT ... SUM(dr.Cantidad_Recibida * doc.Precio_Unitario_Pactado) as Valor_Real
-    FROM ...
-    JOIN Detalle_Recepcion dr ON r.ID = dr.ID_Recepcion
-    JOIN Detalle_OC doc ON dr.ID_Insumo = doc.ID_Insumo AND r.ID_OC_Referencia = doc.ID_OC
-    */
+        const pending = [];
+        const providersSnapshot = await db.collection('proveedores').get();
+        const providersMap = {};
+        providersSnapshot.forEach(doc => { providersMap[doc.id] = doc.data().Nombre_Fantasia; });
 
-    // For MVP, just return the list and let the details be fetched on selection
-    return pending;
+        receptionsSnapshot.forEach(doc => {
+            if (!invoicedReceptionIds.has(doc.id)) {
+                pending.push({
+                    ID: doc.id,
+                    ...doc.data(),
+                    Proveedor: providersMap[doc.data().ID_Proveedor] || 'Proveedor Desconocido'
+                });
+            }
+        });
+
+        return pending;
+    } catch (error) {
+        console.error("Error in getPendingReceptions:", error);
+        return [];
+    }
 }
 
 export async function getReceptionDetailsForInvoice(receptionId) {
-    // Need: Items, Received Qty, Price (from OC)
-    const stmt = db.prepare(`
-        SELECT dr.ID_Insumo, i.Nombre as Insumo, dr.Cantidad_Recibida, 
-               doc.Precio_Unitario_Pactado as Precio,
-               (dr.Cantidad_Recibida * doc.Precio_Unitario_Pactado) as Subtotal_Esperado
-        FROM Detalle_Recepcion dr
-        JOIN Recepcion_Mercaderia r ON dr.ID_Recepcion = r.ID
-        JOIN Detalle_OC doc ON doc.ID_OC = r.ID_OC_Referencia AND doc.ID_Insumo = dr.ID_Insumo
-        JOIN Insumos i ON dr.ID_Insumo = i.ID
-        WHERE r.ID = ?
-    `);
+    if (!db) return null;
+    try {
+        const receptionDoc = await db.collection('recepcion_mercaderia').doc(receptionId.toString()).get();
+        if (!receptionDoc.exists) return null;
+        const receptionData = receptionDoc.data();
 
-    const items = await stmt.all(receptionId);
+        const providerDoc = await db.collection('proveedores').doc(receptionData.ID_Proveedor.toString()).get();
+        const providerData = providerDoc.exists ? providerDoc.data() : { Nombre_Fantasia: 'Desconocido' };
 
-    // Header Info
-    const headerStmt = db.prepare(`
-        SELECT r.*, p.Nombre_Fantasia as Proveedor, p.ID as ID_Proveedor, p.CUIT, p.Condicion_IVA
-        FROM Recepcion_Mercaderia r
-        JOIN Proveedores p ON r.ID_Proveedor = p.ID
-        WHERE r.ID = ?
-    `);
-    const header = await headerStmt.get(receptionId);
+        const detailsSnapshot = await db.collection('detalle_recepcion').where('ID_Recepcion', '==', receptionId.toString()).get();
 
-    return { header, items };
+        // Need to match with OC Prices
+        const ocId = receptionData.ID_OC_Referencia;
+        const ocDetailsSnapshot = await db.collection('detalle_oc').where('ID_OC', '==', parseInt(ocId)).get();
+        const ocPricesMap = {};
+        ocDetailsSnapshot.forEach(doc => {
+            ocPricesMap[doc.data().ID_Insumo] = doc.data().Precio_Unitario_Pactado;
+        });
+
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => { insumosMap[doc.id] = doc.data().Nombre; });
+
+        const items = detailsSnapshot.docs.map(doc => {
+            const d = doc.data();
+            const precio = ocPricesMap[d.ID_Insumo] || 0;
+            return {
+                ID_Insumo: d.ID_Insumo,
+                Insumo: insumosMap[d.ID_Insumo] || 'Insumo Desconocido',
+                Cantidad_Recibida: d.Cantidad_Recibida,
+                Precio: precio,
+                Subtotal_Esperado: d.Cantidad_Recibida * precio
+            };
+        });
+
+        return {
+            header: { ...receptionData, ID: receptionDoc.id, Proveedor: providerData.Nombre_Fantasia, CUIT: providerData.CUIT, Condicion_IVA: providerData.Condicion_IVA },
+            items
+        };
+    } catch (error) {
+        console.error("Error in getReceptionDetailsForInvoice:", error);
+        return null;
+    }
 }
 
 export async function createInvoice(data) {
+    if (!db) return { success: false };
     const {
         providerId, receptionId, tipo, puntoVenta, numero, cae,
         fechaEmision, fechaVencimiento,
@@ -68,45 +92,45 @@ export async function createInvoice(data) {
         items
     } = data;
 
-    // Validation: Check Total Variance?
-    // Frontend should warn, Backend can enforce or flag.
+    try {
+        const batch = db.batch();
+        const invoiceRef = db.collection('facturas').doc();
+        const invoiceId = invoiceRef.id;
 
-    const insertFac = db.prepare(`
-        INSERT INTO Facturas (
-            ID_Proveedor, ID_Recepcion_Referencia, 
-            Tipo_Comprobante, Punto_Venta, Numero_Comprobante, CAE,
-            Fecha_Emision, Fecha_Vencimiento_Pago,
-            Neto_Gravado, IVA_21, IVA_10_5, IVA_27, Percepciones_IIBB, Total_Facturado,
-            Estado_Pago
-        ) VALUES (
-            ?, ?, 
-            ?, ?, ?, ?,
-            ?, ?,
-            ?, ?, ?, ?, ?, ?,
-            'Pendiente'
-        )
-    `);
+        batch.set(invoiceRef, {
+            ID_Proveedor: providerId,
+            ID_Recepcion_Referencia: receptionId,
+            Tipo_Comprobante: tipo,
+            Punto_Venta: puntoVenta,
+            Numero_Comprobante: numero,
+            CAE: cae || null,
+            Fecha_Emision: fechaEmision,
+            Fecha_Vencimiento_Pago: fechaVencimiento || null,
+            Neto_Gravado: neto || 0,
+            IVA_21: iva21 || 0,
+            IVA_10_5: iva105 || 0,
+            IVA_27: iva27 || 0,
+            Percepciones_IIBB: percepciones || 0,
+            Total_Facturado: total,
+            Estado_Pago: 'Pendiente',
+            createdAt: new Date().toISOString()
+        });
 
-    const res = await insertFac.run(
-        providerId, receptionId,
-        tipo, puntoVenta, numero, cae || null,
-        fechaEmision, fechaVencimiento || null,
-        neto || 0, iva21 || 0, iva105 || 0, iva27 || 0, percepciones || 0, total,
-    );
-    const invoiceId = res.lastInsertRowid;
+        for (const item of items) {
+            const detRef = db.collection('detalle_factura').doc();
+            batch.set(detRef, {
+                ID_Factura: invoiceId,
+                ID_Insumo: item.insumoId,
+                Cantidad_Facturada: item.qty,
+                Precio_Unitario_Facturado: item.price
+            });
+        }
 
-    // Detalle Factura (Usually we copy the items from reception, adjusted by invoice qty if needed)
-    // For now assuming 100% matched items
-    const insertDet = db.prepare(`
-        INSERT INTO Detalle_Factura (ID_Factura, ID_Insumo, Cantidad_Facturada, Precio_Unitario_Facturado)
-        VALUES (?, ?, ?, ?)
-    `);
-
-    for (const item of items) {
-        // item: { insumoId, qty, price }
-        await insertDet.run(invoiceId, item.insumoId, item.qty, item.price);
+        await batch.commit();
+        revalidatePath('/compras/facturas');
+        return { success: true, invoiceId };
+    } catch (error) {
+        console.error("Error creating invoice:", error);
+        return { success: false };
     }
-
-    revalidatePath('/compras/facturas');
-    return { success: true, invoiceId };
 }

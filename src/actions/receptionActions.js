@@ -1,116 +1,160 @@
 'use server';
 
-import db from '../lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 import { revalidatePath } from 'next/cache';
 
 export async function getOpenOrders() {
-    const stmt = db.prepare(`
-        SELECT oc.ID, p.Nombre_Fantasia as Proveedor, oc.Fecha_Emision, oc.Total_Estimado, oc.Estado
-        FROM Ordenes_Compra oc
-        JOIN Proveedores p ON oc.ID_Proveedor = p.ID
-        WHERE oc.Estado IN ('Enviada', 'Recepcionada_Parcial')
-        ORDER BY oc.Fecha_Emision DESC
-    `);
-    return await stmt.all();
+    if (!db) return [];
+    try {
+        const snapshot = await db.collection('ordenes_compra')
+            .where('Estado', 'in', ['Enviada', 'Recepcionada_Parcial'])
+            .orderBy('Fecha_Emision', 'desc')
+            .get();
+
+        const providersSnapshot = await db.collection('proveedores').get();
+        const providersMap = {};
+        providersSnapshot.forEach(doc => {
+            providersMap[doc.id] = doc.data().Nombre_Fantasia;
+        });
+
+        return snapshot.docs.map(doc => ({
+            ID: doc.id,
+            ...doc.data(),
+            Proveedor: providersMap[doc.data().ID_Proveedor] || 'Proveedor Desconocido'
+        }));
+    } catch (error) {
+        console.error("Error in getOpenOrders:", error);
+        return [];
+    }
 }
 
 export async function getOrderDetails(orderId) {
-    const stmt = db.prepare(`
-        SELECT d.*, i.Nombre as Insumo, i.Unidad_Compra
-        FROM Detalle_OC d
-        JOIN Insumos i ON d.ID_Insumo = i.ID
-        WHERE d.ID_OC = ?
-    `);
-    const details = await stmt.all(orderId);
+    if (!db) return null;
+    try {
+        const orderDoc = await db.collection('ordenes_compra').doc(orderId.toString()).get();
+        if (!orderDoc.exists) return null;
 
-    const headerStmt = db.prepare(`
-        SELECT oc.*, p.Nombre_Fantasia as Proveedor 
-        FROM Ordenes_Compra oc
-        JOIN Proveedores p ON oc.ID_Proveedor = p.ID
-        WHERE oc.ID = ?
-    `);
-    const header = await headerStmt.get(orderId);
+        const orderData = orderDoc.data();
 
-    return { header, items: details };
+        // Fetch Provider
+        const providerDoc = await db.collection('proveedores').doc(orderData.ID_Proveedor.toString()).get();
+        const providerName = providerDoc.exists ? providerDoc.data().Nombre_Fantasia : 'Proveedor Desconocido';
+
+        // Fetch Details
+        const detailsSnapshot = await db.collection('detalle_oc')
+            .where('ID_OC', '==', parseInt(orderId))
+            .get();
+
+        // Fetch Insumos for names
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => {
+            insumosMap[doc.id] = doc.data().Nombre;
+        });
+
+        const items = detailsSnapshot.docs.map(doc => ({
+            ...doc.data(),
+            Insumo: insumosMap[doc.data().ID_Insumo] || 'Insumo Desconocido'
+        }));
+
+        return {
+            header: { ID: orderDoc.id, ...orderData, Proveedor: providerName },
+            items: items.map(i => ({
+                ...i,
+                name: i.Insumo,
+                unit: i.Unidad_Compra,
+                qty: i.Cantidad_Solicitada,
+                insumoId: i.ID_Insumo
+            }))
+        };
+    } catch (error) {
+        console.error("Error in getOrderDetails:", error);
+        return null;
+    }
 }
 
 export async function createReception(data) {
+    if (!db) return { success: false };
     const { orderId, remito, chofer, patente, temperatura, items, qc } = data;
-    // data.qc = { receptionUserId, globalStatus: 'Aceptado'|'Rechazado'|'Condicional' }
 
-    // 1. Insert Header
-    const insertRec = db.prepare(`
-        INSERT INTO Recepcion_Mercaderia 
-        (ID_OC_Referencia, ID_Proveedor, Numero_Remito, Fecha_Real_Recepcion, Temperatura_Ingreso, Chofer, Patente, ID_Usuario_Recepcion, Estado_Global)
-        VALUES (?, ?, ?, DATE('now'), ?, ?, ?, ?, ?)
-    `);
+    try {
+        const batch = db.batch();
 
-    const order = await db.prepare('SELECT ID_Proveedor FROM Ordenes_Compra WHERE ID = ?').get(orderId);
+        // 1. Get Provider Info from Order
+        const orderDocRef = db.collection('ordenes_compra').doc(orderId.toString());
+        const orderDoc = await orderDocRef.get();
+        if (!orderDoc.exists) throw new Error("Order not found");
+        const orderData = orderDoc.data();
 
-    const res = await insertRec.run(
-        orderId,
-        order.ID_Proveedor,
-        remito,
-        temperatura || null,
-        chofer || '',
-        patente || '',
-        qc?.receptionUserId || 1, // Default to mock user if not sent
-        qc?.globalStatus || 'Aceptado'
-    );
-    const receptionId = res.lastInsertRowid;
+        // 2. Insert Header
+        const receptionRef = db.collection('recepcion_mercaderia').doc();
+        const receptionId = receptionRef.id;
 
-    // 2. Insert Details & Update Stock
-    const insertDet = db.prepare(`
-        INSERT INTO Detalle_Recepcion 
-        (ID_Recepcion, ID_Insumo, Cantidad_Recibida, Cantidad_Rechazada, Motivo_Rechazo, Lote, Vencimiento, Estado_Envases)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+        batch.set(receptionRef, {
+            ID_OC_Referencia: orderId,
+            ID_Proveedor: orderData.ID_Proveedor,
+            Numero_Remito: remito,
+            Fecha_Real_Recepcion: new Date().toISOString().split('T')[0],
+            Temperatura_Ingreso: temperatura || null,
+            Chofer: chofer || '',
+            Patente: patente || '',
+            ID_Usuario_Recepcion: qc?.receptionUserId || 1,
+            Estado_Global: qc?.globalStatus || 'Aceptado',
+            createdAt: new Date().toISOString()
+        });
 
-    // Stock Updates
-    const updateStock = db.prepare(`
-        UPDATE Insumo_Valuacion 
-        SET Stock_Actual = COALESCE(Stock_Actual, 0) + ? 
-        WHERE ID_Insumo = ?
-    `);
+        // 3. Insert Details & Update Stock
+        for (const item of items) {
+            if (item.receivedQty > 0 || item.rejectedQty > 0) {
+                const detRef = db.collection('detalle_recepcion').doc();
+                batch.set(detRef, {
+                    ID_Recepcion: receptionId,
+                    ID_Insumo: item.insumoId,
+                    Cantidad_Recibida: item.receivedQty,
+                    Cantidad_Rechazada: item.rejectedQty || 0,
+                    Motivo_Rechazo: item.reason || '',
+                    Lote: item.lot || '',
+                    Vencimiento: item.expiry || '',
+                    Estado_Envases: item.packageStatus || 'Integro'
+                });
 
-    // Check if valuacion row exists? Usually Seed ensures it, but safe to INSERT OR IGNORE if needed.
-    // For MVP assuming row exists or trigger handles it. Just running UPDATE.
+                if (item.receivedQty > 0) {
+                    // Update Valuacion (Stock)
+                    // Simplified: We'd need to find the doc by ID_Insumo. 
+                    // To keep it clean, maybe stock is in 'insumo_valuacion' collection
+                    const valSnapshot = await db.collection('insumo_valuacion')
+                        .where('ID_Insumo', '==', parseInt(item.insumoId))
+                        .limit(1)
+                        .get();
 
-    const insertMov = db.prepare(`
-        INSERT INTO Movimientos_Stock (ID_Insumo, Tipo_Movimiento, Cantidad, Referencia, Fecha)
-        VALUES (?, 'Recepcion', ?, ?, DATE('now'))
-    `);
+                    if (!valSnapshot.empty) {
+                        const valDoc = valSnapshot.docs[0];
+                        batch.update(valDoc.ref, {
+                            Stock_Actual: (valDoc.data().Stock_Actual || 0) + item.receivedQty
+                        });
+                    }
 
-    for (const item of items) {
-        // item: { insumoId, receivedQty, rejectedQty, reason, lot, expiry, packageStatus }
-        if (item.receivedQty > 0 || item.rejectedQty > 0) {
-            await insertDet.run(
-                receptionId,
-                item.insumoId,
-                item.receivedQty,
-                item.rejectedQty || 0,
-                item.reason || '',
-                item.lot || '',
-                item.expiry || '',
-                item.packageStatus || 'Integro'
-            );
-
-            // Update Stock if Accepted
-            if (item.receivedQty > 0) {
-                await updateStock.run(item.receivedQty, item.insumoId);
-                await insertMov.run(item.insumoId, item.receivedQty, `Recepcion #${remito}`);
+                    const movRef = db.collection('movimientos_stock').doc();
+                    batch.set(movRef, {
+                        ID_Insumo: item.insumoId,
+                        Tipo_Movimiento: 'Recepcion',
+                        Cantidad: item.receivedQty,
+                        Referencia: `Recepcion #${remito}`,
+                        Fecha: new Date().toISOString().split('T')[0]
+                    });
+                }
             }
         }
+
+        // 4. Update PO Status
+        batch.update(orderDocRef, { Estado: 'Recepcionada_Parcial' });
+
+        await batch.commit();
+        revalidatePath('/compras/recepcion');
+        return { success: true, receptionId };
+
+    } catch (error) {
+        console.error("Error creating reception:", error);
+        return { success: false, message: error.message };
     }
-
-    // 3. Update PO Status
-    // Logic: If all items received >= requested, Close. Else Partial.
-    // Simplifying: If GlobalStatus is 'Rechazado', PO stays 'Enviada' w/ alert? 
-    // For now: Always 'Recepcionada_Parcial' to allow further receivals, unless user specifically "Closes" it. 
-    // Let's set to 'Recepcionada_Parcial'.
-    const updatePO = db.prepare("UPDATE Ordenes_Compra SET Estado = 'Recepcionada_Parcial' WHERE ID = ?");
-    await updatePO.run(orderId);
-
-    revalidatePath('/compras/recepcion');
-    return { success: true, receptionId };
 }

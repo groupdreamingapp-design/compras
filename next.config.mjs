@@ -9,6 +9,8 @@ const nextConfig = {
         }
         return config;
     },
+    // Forzamos la raíz del proyecto para evitar errores de detección de workspace
+    outputFileTracingRoot: 'C:\\Users\\Juan Correa Casabo\\Documents\\Perfil compras',
     // Silenciamos el error de conflicto entre Webpack y Turbopack según la sugerencia de los logs
     turbopack: {},
 };
