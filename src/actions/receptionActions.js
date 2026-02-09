@@ -6,10 +6,15 @@ import { revalidatePath } from 'next/cache';
 export async function getOpenOrders() {
     if (!db) return [];
     try {
+        // Obtenemos todas las órdenes ordenadas por fecha y filtramos en memoria
+        // para evitar el requerimiento de un índice compuesto manual en Firestore.
         const snapshot = await db.collection('ordenes_compra')
-            .where('Estado', 'in', ['Enviada', 'Recepcionada_Parcial'])
             .orderBy('Fecha_Emision', 'desc')
             .get();
+
+        const filteredDocs = snapshot.docs.filter(doc =>
+            ['Enviada', 'Recepcionada_Parcial'].includes(doc.data().Estado)
+        );
 
         const providersSnapshot = await db.collection('proveedores').get();
         const providersMap = {};
