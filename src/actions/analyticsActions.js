@@ -1,78 +1,75 @@
 'use server';
 
-import db from '@/lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 
 export async function getMenuEngineeringData() {
-    // 1. Get Sales Aggregated by Recipe (Popularity)
-    // For MVP we take ALL time sales. In prod, this should be filtered by date.
-    const sales = await db.prepare(`
-        SELECT ID_Receta, SUM(Cantidad) as totalSold
-        FROM Ventas_Detalle
-        GROUP BY ID_Receta
-    `).all();
+    if (!db) return { items: [], averages: {} };
+    try {
+        const salesSnapshot = await db.collection('ventas_detalle').get();
+        const recipesSnapshot = await db.collection('recetas').get();
 
-    // 2. Get Recipe Details (Profitability)
-    const recipes = await db.prepare(`
-        SELECT ID, Nombre_Plato, Precio_Venta_Actual, Costo_Teorico_Actual
-        FROM Recetas
-    `).all();
+        if (recipesSnapshot.empty) return { items: [], averages: {} };
 
-    if (recipes.length === 0) return { items: [], averages: {} };
+        const salesMap = {};
+        salesSnapshot.forEach(doc => {
+            const d = doc.data();
+            const rid = d.ID_Receta?.toString();
+            if (!salesMap[rid]) salesMap[rid] = 0;
+            salesMap[rid] += (d.Cantidad || 0);
+        });
 
-    // 3. Combine Data
-    let totalSalesQty = 0;
-    let totalMarginSum = 0; // for weighted average
+        let totalSalesQty = 0;
+        let totalMarginSum = 0;
 
-    const combined = recipes.map(r => {
-        const sold = sales.find(s => s.ID_Receta === r.ID)?.totalSold || 0;
-        const cost = r.Costo_Teorico_Actual || 0;
-        const price = r.Precio_Venta_Actual || 0;
-        const margin = price - cost; // Contribution Margin ($)
+        const combined = recipesSnapshot.docs.map(doc => {
+            const r = doc.data();
+            const id = doc.id;
+            const sold = salesMap[id] || 0;
+            const cost = r.Costo_Teorico_Actual || 0;
+            const price = r.Precio_Venta_Actual || 0;
+            const margin = price - cost;
 
-        totalSalesQty += sold;
-        totalMarginSum += (margin * sold);
+            totalSalesQty += sold;
+            totalMarginSum += (margin * sold);
+
+            return {
+                id: id,
+                name: r.Nombre_Plato,
+                price,
+                cost,
+                margin,
+                sold
+            };
+        });
+
+        const avgMargin = totalSalesQty > 0 ? (totalMarginSum / totalSalesQty) : 0;
+        const n = combined.length;
+        const expectedShare = n > 0 ? (1 / n) : 0;
+        const popularityBenchmark = (totalSalesQty * expectedShare * 0.7);
+
+        const items = combined.map(i => {
+            const isHighMargin = i.margin >= avgMargin;
+            const isHighPop = i.sold >= popularityBenchmark;
+
+            let classification = '';
+            if (isHighMargin && isHighPop) classification = 'STAR';
+            else if (!isHighMargin && isHighPop) classification = 'PLOWHORSE';
+            else if (isHighMargin && !isHighPop) classification = 'PUZZLE';
+            else classification = 'DOG';
+
+            return { ...i, classification };
+        });
 
         return {
-            id: r.ID,
-            name: r.Nombre_Plato,
-            price,
-            cost,
-            margin,
-            sold
+            items,
+            averages: {
+                margin: avgMargin,
+                popularity: popularityBenchmark,
+                totalSales: totalSalesQty
+            }
         };
-    });
-
-    // 4. Calculate Thresholds
-    // Average Margin (Weighted)
-    const avgMargin = totalSalesQty > 0 ? (totalMarginSum / totalSalesQty) : 0;
-
-    // Average Popularity (100% / N * 70%) - Common Kasavana/Smith model rule
-    // Or simpler: Median. Let's use (1 / N) * 0.7 * TotalSales
-    // "High Popularity" is usually defined as > 70% of Expected Popularity (1/N)
-    const n = combined.length;
-    const expectedShare = n > 0 ? (1 / n) : 0;
-    const popularityBenchmark = (totalSalesQty * expectedShare * 0.7);
-
-    // 5. Classify
-    const items = combined.map(i => {
-        const isHighMargin = i.margin >= avgMargin;
-        const isHighPop = i.sold >= popularityBenchmark;
-
-        let classification = '';
-        if (isHighMargin && isHighPop) classification = 'STAR';      // High Profit, High Pop
-        else if (!isHighMargin && isHighPop) classification = 'PLOWHORSE'; // Low Profit, High Pop
-        else if (isHighMargin && !isHighPop) classification = 'PUZZLE';  // High Profit, Low Pop
-        else classification = 'DOG';                                     // Low Profit, Low Pop
-
-        return { ...i, classification };
-    });
-
-    return {
-        items,
-        averages: {
-            margin: avgMargin,
-            popularity: popularityBenchmark,
-            totalSales: totalSalesQty
-        }
-    };
+    } catch (e) {
+        console.error("Error in getMenuEngineeringData:", e);
+        return { items: [], averages: {} };
+    }
 }

@@ -53,7 +53,10 @@ async function migrate() {
             'Ordenes_Compra', 'Detalle_OC',
             'Recepcion_Mercaderia', 'Detalle_Recepcion',
             'Facturas', 'Detalle_Factura',
-            'Insumo_Valuacion', 'Movimientos_Stock'
+            'Insumo_Valuacion', 'Movimientos_Stock',
+            // NEW TABLES
+            'Platos', 'Fichas_Tecnicas', 'Recetas', 'Detalle_Receta',
+            'Ventas_Cabecera', 'Ventas_Detalle', 'Ventas_POS', 'Lista_Precios_Pactados'
         ];
 
         for (const tableName of tables) {

@@ -1,42 +1,55 @@
-'use server';
-import db from '../lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 
 export async function getFinanceMetrics() {
-    // 1. Total Payable (Pendiente)
-    const totalStmt = db.prepare(`
-        SELECT SUM(Total_Facturado) as Total 
-        FROM Facturas 
-        WHERE Estado_Pago = 'Pendiente'
-    `);
-    const totalDebt = totalStmt.get()?.Total || 0;
+    if (!db) return { totalDebt: 0, overdueDebt: 0, dueSoonDebt: 0 };
+    try {
+        const snapshot = await db.collection('facturas').where('Estado_Pago', '==', 'Pendiente').get();
+        const now = new Date().toISOString().split('T')[0];
+        const next7Days = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    // 2. Overdue (Vencido) VS Due Soon (Next 7 Days)
-    const overdueStmt = db.prepare(`
-        SELECT SUM(Total_Facturado) as Total 
-        FROM Facturas 
-        WHERE Estado_Pago = 'Pendiente' AND Fecha_Vencimiento_Pago < DATE('now')
-    `);
-    const overdueDebt = overdueStmt.get()?.Total || 0;
+        let totalDebt = 0;
+        let overdueDebt = 0;
+        let dueSoonDebt = 0;
 
-    const dueSoonStmt = db.prepare(`
-        SELECT SUM(Total_Facturado) as Total 
-        FROM Facturas 
-        WHERE Estado_Pago = 'Pendiente' 
-        AND Fecha_Vencimiento_Pago BETWEEN DATE('now') AND DATE('now', '+7 days')
-    `);
-    const dueSoonDebt = dueSoonStmt.get()?.Total || 0;
+        snapshot.forEach(doc => {
+            const f = doc.data();
+            const total = f.Total_Facturado || 0;
+            totalDebt += total;
 
-    return { totalDebt, overdueDebt, dueSoonDebt };
+            if (f.Fecha_Vencimiento_Pago < now) {
+                overdueDebt += total;
+            } else if (f.Fecha_Vencimiento_Pago >= now && f.Fecha_Vencimiento_Pago <= next7Days) {
+                dueSoonDebt += total;
+            }
+        });
+
+        return { totalDebt, overdueDebt, dueSoonDebt };
+    } catch (e) {
+        console.error("Error in getFinanceMetrics:", e);
+        return { totalDebt: 0, overdueDebt: 0, dueSoonDebt: 0 };
+    }
 }
 
 export async function getUnpaidInvoices() {
-    const stmt = db.prepare(`
-        SELECT f.ID, p.Nombre_Fantasia as Proveedor, f.Numero_Comprobante, 
-               f.Fecha_Emision, f.Fecha_Vencimiento_Pago, f.Total_Facturado, f.Condicion_Pago_Pactada
-        FROM Facturas f
-        LEFT JOIN Proveedores p ON f.ID_Proveedor = p.ID 
-        WHERE f.Estado_Pago = 'Pendiente'
-        ORDER BY f.Fecha_Vencimiento_Pago ASC
-    `);
-    return await stmt.all();
+    if (!db) return [];
+    try {
+        const snapshot = await db.collection('facturas')
+            .where('Estado_Pago', '==', 'Pendiente')
+            .get();
+
+        const providersSnapshot = await db.collection('proveedores').get();
+        const providersMap = {};
+        providersSnapshot.forEach(doc => { providersMap[doc.id] = doc.data().Nombre_Fantasia; });
+
+        const invoices = snapshot.docs.map(doc => ({
+            ID: doc.id,
+            ...doc.data(),
+            Proveedor: providersMap[doc.data().ID_Proveedor] || 'Desconocido'
+        }));
+
+        return invoices.sort((a, b) => new Date(a.Fecha_Vencimiento_Pago) - new Date(b.Fecha_Vencimiento_Pago));
+    } catch (e) {
+        console.error("Error in getUnpaidInvoices:", e);
+        return [];
+    }
 }

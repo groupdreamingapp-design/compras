@@ -1,114 +1,164 @@
 'use server';
 
-import db from '@/lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 import { revalidatePath } from 'next/cache';
 
 export async function getRecipes() {
-    const raw = await db.prepare(`
-        SELECT * FROM Recetas ORDER BY Nombre_Plato ASC
-    `).all();
-    return raw;
+    if (!db) return [];
+    try {
+        const snapshot = await db.collection('recetas').orderBy('Nombre_Plato', 'asc').get();
+        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) {
+        console.error("Error in getRecipes:", e);
+        return [];
+    }
 }
 
 export async function getRecipeById(id) {
-    const header = await db.prepare(`
-        SELECT * FROM Recetas WHERE ID = ?
-    `).get(id);
+    if (!db) return null;
+    try {
+        const headerDoc = await db.collection('recetas').doc(id.toString()).get();
+        if (!headerDoc.exists) return null;
+        const header = headerDoc.data();
 
-    if (!header) return null;
+        const detailsSnapshot = await db.collection('detalle_receta').where('ID_Receta', '==', id.toString()).get();
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => { insumosMap[doc.id] = doc.data(); });
 
-    const items = await db.prepare(`
-        SELECT d.ID_Receta, d.ID_Insumo, d.Cantidad_Bruta as qty, d.Unidad_Uso as unit,
-               i.Nombre as name, i.Codigo as code, 
-               v.Costo_Promedio_Ponderado as ppp,
-               i.Unidad_Stock as stockUnit,
-               i.Factor_Conversion as conversion
-        FROM Detalle_Receta d
-        JOIN Insumos i ON d.ID_Insumo = i.ID
-        LEFT JOIN Insumo_Valuacion v ON i.ID = v.ID_Insumo
-        WHERE d.ID_Receta = ?
-    `).all(id);
+        const valuationsSnapshot = await db.collection('insumo_valuacion').get();
+        const valuationsMap = {};
+        valuationsSnapshot.forEach(doc => { valuationsMap[doc.data().ID_Insumo?.toString()] = doc.data(); });
 
-    // Calculate dynamic cost per item
-    const itemsWithCost = items.map(item => {
-        const cost = (item.ppp || 0) * item.qty; // Simple calc, assuming qty is in StockUnit
-        // Note: Real logic might need unit conversion if Unidad_Uso != StockUnit
+        const itemsWithCost = detailsSnapshot.docs.map(doc => {
+            const d = doc.data();
+            const insumoId = d.ID_Insumo?.toString();
+            const insumo = insumosMap[insumoId] || {};
+            const val = valuationsMap[insumoId] || {};
+            const ppp = val.Costo_Promedio_Ponderado || 0;
+            const cost = ppp * d.Cantidad_Bruta;
+
+            return {
+                id: doc.id,
+                ...d,
+                name: insumo.Nombre || 'Desconocido',
+                code: insumo.Codigo || '',
+                ppp: ppp,
+                stockUnit: insumo.Unidad_Stock || '',
+                conversion: insumo.Factor_Conversion || 1,
+                unit: d.Unidad_Uso,
+                qty: d.Cantidad_Bruta,
+                cost: cost
+            };
+        });
+
+        const totalCost = itemsWithCost.reduce((acc, i) => acc + i.cost, 0);
+
         return {
-            ...item,
-            cost
+            header: { id: headerDoc.id, ...header, Costo_Teorico_Actual: totalCost },
+            items: itemsWithCost
         };
-    });
-
-    const totalCost = itemsWithCost.reduce((acc, i) => acc + i.cost, 0);
-
-    return {
-        header: { ...header, Costo_Teorico_Actual: totalCost },
-        items: itemsWithCost
-    };
+    } catch (e) {
+        console.error("Error in getRecipeById:", e);
+        return null;
+    }
 }
 
 export async function createRecipe(payload) {
-    // payload: { name, price, targetMargin, items: [{ insumoId, qty, unit }] }
-
-    // We can use a transaction wrapper if updated db.js allows, or sequential
-    // For now, sequential
+    if (!db) return { success: false };
     try {
-        const res = await db.prepare(`
-            INSERT INTO Recetas (Nombre_Plato, Precio_Venta_Actual, Margen_Objetivo_Pct, Costo_Teorico_Actual, Ultima_Actualizacion)
-            VALUES (?, ?, ?, ?, DATE('now'))
-        `).run(payload.name, payload.price, payload.targetMargin, 0);
+        const batch = db.batch();
+        const recipeRef = db.collection('recetas').doc();
+        const recipeId = recipeRef.id;
 
-        const recipeId = res.lastInsertRowid;
-
-        const insertItem = db.prepare(`
-            INSERT INTO Detalle_Receta (ID_Receta, ID_Insumo, Cantidad_Bruta, Unidad_Uso)
-            VALUES (?, ?, ?, ?)
-        `);
+        batch.set(recipeRef, {
+            Nombre_Plato: payload.name,
+            Precio_Venta_Actual: payload.price,
+            Margen_Objetivo_Pct: payload.targetMargin,
+            Costo_Teorico_Actual: 0,
+            Ultima_Actualizacion: new Date().toISOString().split('T')[0],
+            createdAt: new Date().toISOString()
+        });
 
         for (const item of payload.items) {
-            await insertItem.run(recipeId, item.insumoId, item.qty, item.unit);
+            const detRef = db.collection('detalle_receta').doc();
+            batch.set(detRef, {
+                ID_Receta: recipeId,
+                ID_Insumo: item.insumoId.toString(),
+                Cantidad_Bruta: item.qty,
+                Unidad_Uso: item.unit
+            });
         }
 
+        await batch.commit();
         revalidatePath('/produccion/recetas');
         return { success: true, id: recipeId };
     } catch (e) {
-        console.error(e);
+        console.error("Error in createRecipe:", e);
         return { success: false, error: e.message };
     }
 }
 
 export async function updateRecipe(id, payload) {
-    // Update Header
-    await db.prepare(`
-        UPDATE Recetas 
-        SET Nombre_Plato = ?, Precio_Venta_Actual = ?, Margen_Objetivo_Pct = ?, Ultima_Actualizacion = DATE('now')
-        WHERE ID = ?
-    `).run(payload.name, payload.price, payload.targetMargin, id);
+    if (!db) return { success: false };
+    try {
+        const batch = db.batch();
+        const recipeRef = db.collection('recetas').doc(id.toString());
 
-    // Replace Items
-    await db.prepare('DELETE FROM Detalle_Receta WHERE ID_Receta = ?').run(id);
+        batch.update(recipeRef, {
+            Nombre_Plato: payload.name,
+            Precio_Venta_Actual: payload.price,
+            Margen_Objetivo_Pct: payload.targetMargin,
+            Ultima_Actualizacion: new Date().toISOString().split('T')[0]
+        });
 
-    const insertItem = db.prepare(`
-        INSERT INTO Detalle_Receta (ID_Receta, ID_Insumo, Cantidad_Bruta, Unidad_Uso)
-        VALUES (?, ?, ?, ?)
-    `);
+        // Replacing items in Firestore is different than SQL DELETE.
+        // We need to find existing and delete them, or use a subcollection.
+        // For simplicity, let's assume they are top-level and we find them.
+        const existingDetails = await db.collection('detalle_receta').where('ID_Receta', '==', id.toString()).get();
+        existingDetails.forEach(doc => batch.delete(doc.ref));
 
-    for (const item of payload.items) {
-        await insertItem.run(id, item.insumoId, item.qty, item.unit);
+        for (const item of payload.items) {
+            const detRef = db.collection('detalle_receta').doc();
+            batch.set(detRef, {
+                ID_Receta: id.toString(),
+                ID_Insumo: item.insumoId.toString(),
+                Cantidad_Bruta: item.qty,
+                Unidad_Uso: item.unit
+            });
+        }
+
+        await batch.commit();
+        revalidatePath('/produccion/recetas');
+        return { success: true };
+    } catch (e) {
+        console.error("Error in updateRecipe:", e);
+        return { success: false, error: e.message };
     }
-
-    revalidatePath('/produccion/recetas');
-    return { success: true };
 }
 
 export async function getInsumosForSelect() {
-    const res = await db.prepare(`
-        SELECT i.ID as id, i.Nombre as name, i.Unidad_Stock as stockUnit, i.Unidad_Uso as useUnit,
-               i.Factor_Conversion as conversion,
-               COALESCE(v.Costo_Promedio_Ponderado, 0) as ppp
-        FROM Insumos i
-        LEFT JOIN Insumo_Valuacion v ON i.ID = v.ID_Insumo
-        ORDER BY i.Nombre ASC
-    `).all();
-    return res;
+    if (!db) return [];
+    try {
+        const insumosSnapshot = await db.collection('insumos').orderBy('Nombre', 'asc').get();
+        const valuationsSnapshot = await db.collection('insumo_valuacion').get();
+        const valMap = {};
+        valuationsSnapshot.forEach(doc => { valMap[doc.data().ID_Insumo?.toString()] = doc.data(); });
+
+        return insumosSnapshot.docs.map(doc => {
+            const i = doc.data();
+            const id = doc.id;
+            return {
+                id: id,
+                name: i.Nombre,
+                stockUnit: i.Unidad_Stock,
+                useUnit: i.Unidad_Uso,
+                conversion: i.Factor_Conversion,
+                ppp: valMap[id]?.Costo_Promedio_Ponderado || 0
+            };
+        });
+    } catch (e) {
+        console.error("Error in getInsumosForSelect:", e);
+        return [];
+    }
 }

@@ -1,112 +1,82 @@
+import { adminDb as db } from '@/lib/firebaseAdmin';
 
-import db from '../lib/db';
-
-/**
- * Updates the Weighted Average Cost (PPP) and Stock for an Insumo.
- * Formula: ((CurrentStock * CurrentPPP) + (NewQty * NewReview_UnitCost)) / (CurrentStock + NewQty)
- */
 export async function updateStockAndPPP(insumoId, quantity, totalCost) {
-    // 1. Get Current State
-    const currentStmt = db.prepare('SELECT Stock_Actual, Costo_Promedio_Ponderado FROM Insumo_Valuacion WHERE ID_Insumo = ?');
-    let current = await currentStmt.get(insumoId);
+    if (!db) return null;
+    try {
+        const valRef = db.collection('insumo_valuacion').doc(insumoId.toString());
+        const valDoc = await valRef.get();
+        let current = valDoc.exists ? valDoc.data() : { Stock_Actual: 0, Costo_Promedio_Ponderado: 0 };
 
-    if (!current) {
-        // Init if missing
-        await db.prepare('INSERT INTO Insumo_Valuacion (ID_Insumo, Stock_Actual, Costo_Promedio_Ponderado) VALUES (?, 0, 0)').run(insumoId);
-        current = { Stock_Actual: 0, Costo_Promedio_Ponderado: 0 };
+        const oldStock = current.Stock_Actual || 0;
+        const oldPPP = current.Costo_Promedio_Ponderado || 0;
+        const unitCost = totalCost / quantity;
+
+        let newStock = oldStock + quantity;
+        let newPPP = 0;
+
+        if (newStock <= 0) {
+            newPPP = unitCost;
+        } else {
+            const oldValue = oldStock * oldPPP;
+            const newValue = totalCost;
+            newPPP = (oldValue + newValue) / newStock;
+        }
+
+        // Actualizar datos en Firestore
+        await valRef.set({
+            ID_Insumo: parseInt(insumoId),
+            Stock_Actual: newStock,
+            Costo_Promedio_Ponderado: newPPP,
+            lastUpdated: new Date().toISOString()
+        }, { merge: true });
+
+        await updateRecipeCosts(insumoId);
+        return { oldPPP, newPPP, oldStock, newStock };
+    } catch (e) {
+        console.error("Error in updateStockAndPPP:", e);
+        return null;
     }
-
-    const oldStock = current.Stock_Actual;
-    const oldPPP = current.Costo_Promedio_Ponderado;
-    const unitCost = totalCost / quantity;
-
-    let newStock = oldStock + quantity;
-    let newPPP = 0;
-
-    if (newStock <= 0) {
-        // Edge case: Negative stock or zero. Reset PPP to latest cost if stock is 0.
-        newPPP = unitCost;
-    } else {
-        // Calculate PPP
-        const oldValue = oldStock * oldPPP;
-        const newValue = totalCost; // (quantity * unitCost)
-        newPPP = (oldValue + newValue) / newStock;
-    }
-
-    // 2. Update Database
-    const updateStmt = db.prepare('UPDATE Insumo_Valuacion SET Stock_Actual = ?, Costo_Promedio_Ponderado = ? WHERE ID_Insumo = ?');
-    await updateStmt.run(newStock, newPPP, insumoId);
-
-    // 3. Trigger Recipe Cost Update
-    await updateRecipeCosts(insumoId);
-
-    return { oldPPP, newPPP, oldStock, newStock };
 }
 
-/**
- * Updates the Costo_Teorico_Actual for all Platos using this Insumo.
- */
 export async function updateRecipeCosts(insumoId) {
-    // Find all Platos using this Insumo
-    const platosStmt = db.prepare(`
-        SELECT DISTINCT ID_Plato 
-        FROM Fichas_Tecnicas 
-        WHERE ID_Insumo = ?
-    `);
-    const platos = await platosStmt.all(insumoId);
+    if (!db) return;
+    try {
+        const techSheetsSnapshot = await db.collection('fichas_tecnicas').where('ID_Insumo', '==', parseInt(insumoId)).get();
+        const plateIds = [...new Set(techSheetsSnapshot.docs.map(doc => doc.data().ID_Plato.toString()))];
 
-    for (const plato of platos) {
-        await calculatePlatoCost(plato.ID_Plato);
+        for (const plateId of plateIds) {
+            // Recalcular el costo del plato basado en los nuevos PPP de sus insumos
+            await calculatePlatoCost(plateId);
+        }
+    } catch (e) {
+        console.error("Error in updateRecipeCosts:", e);
     }
 }
 
-/**
- * Re-calculates and updates the total cost of a Plato based on its recipe.
- */
 export async function calculatePlatoCost(platoId) {
-    // Sum (Quantity * Insumo.PPP)
-    // Note: Fichas_Tecnicas uses "Cantidad_Teorica_Por_Plato" (in Unidad_Uso).
-    // Insumo_Valuacion is usually per "Unidad_Compra" or "Unidad_Uso"? 
-    // In seed.mjs:
-    // Lomo: Buy=Caja 20kg. Use=Kg. Factor=20.
-    // PPP should be per UNIDAD DE USO ideally for recipes? 
-    // OR we convert. 
-    // Let's check seed data.
-    // Insumo_Valuacion inserted: `await insertVal.run(iLomo, 47.5, 10500);` 
-    // 47.5 is Kg (47.5). 10500 is Cost per Kg ($10,500).
-    // So Valuacion is in UNIDAD DE USO (derived from simple numbers in seed).
+    if (!db) return 0;
+    try {
+        const techSheetsSnapshot = await db.collection('fichas_tecnicas').where('ID_Plato', '==', parseInt(platoId)).get();
+        const insumosSnapshot = await db.collection('insumos').get();
+        const insumosMap = {};
+        insumosSnapshot.forEach(doc => { insumosMap[doc.id] = doc.data(); });
 
-    // However, Receipt Quantity is usually in Purchase Units.
-    // Ensure we handle conversion if needed. 
-    // For MVP/Seed consistency: Let's assume PPP is stored in "Unidad_Uso" equivalent cost, OR we check Factor.
+        const valuationsSnapshot = await db.collection('insumo_valuacion').get();
+        const valuationsMap = {};
+        valuationsSnapshot.forEach(doc => { valuationsMap[doc.data().ID_Insumo.toString()] = doc.data(); });
 
-    // In seed: 
-    // Unit_Compra='Caja 20kg', Factor=20.
-    // Receipt: 5 boxes. Total = 100kg.
-    // Invoice: 5 boxes = $1,050,000. => $210,000/box.
-    // PPP stored: 10,500. ($210,000 / 20 = 10,500).
-    // So PPP is per UNIDAD DE USO (Kg).
+        let totalCost = 0;
+        techSheetsSnapshot.forEach(doc => {
+            const ts = doc.data();
+            const insumoId = ts.ID_Insumo.toString();
+            const ppp = valuationsMap[insumoId]?.Costo_Promedio_Ponderado || 0;
+            totalCost += ts.Cantidad_Teorica_Por_Plato * ppp;
+        });
 
-    const recipeStmt = db.prepare(`
-        SELECT ft.Cantidad_Teorica_Por_Plato, i.Unidad_Uso, i.Factor_Conversion, v.Costo_Promedio_Ponderado
-        FROM Fichas_Tecnicas ft
-        JOIN Insumos i ON ft.ID_Insumo = i.ID
-        LEFT JOIN Insumo_Valuacion v ON i.ID = v.ID_Insumo
-        WHERE ft.ID_Plato = ?
-    `);
-
-    const ingredients = await recipeStmt.all(platoId);
-
-    let totalCost = 0;
-    for (const ing of ingredients) {
-        const ppp = ing.Costo_Promedio_Ponderado || 0;
-        // PPP is assumed to be per Unidad_Uso based on seed logic.
-        totalCost += ing.Cantidad_Teorica_Por_Plato * ppp;
+        await db.collection('platos').doc(platoId.toString()).update({ Costo_Teorico_Actual: totalCost });
+        return totalCost;
+    } catch (e) {
+        console.error("Error in calculatePlatoCost:", e);
+        return 0;
     }
-
-    // Update Plato
-    const updatePlato = db.prepare('UPDATE Platos SET Costo_Teorico_Actual = ? WHERE ID = ?');
-    await updatePlato.run(totalCost, platoId);
-
-    return totalCost;
 }

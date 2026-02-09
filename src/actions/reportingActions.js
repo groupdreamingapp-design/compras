@@ -1,72 +1,67 @@
 'use server';
 
-import db from '@/lib/db';
+import { adminDb as db } from '@/lib/firebaseAdmin';
 
 export async function getVendorPerformance(providerId) {
-    if (!providerId) return null;
+    if (!db || !providerId) return null;
 
-    // 1. Quality Score (Based on Receptions)
-    // Formula: % of Receptions with Estado_Global = 'Aceptado' (vs 'Rechazado' or 'Condicional')
-    // Or better: % of Items Accepted. Let's use Receipt Global Status for simplicity in V1.
-    const qualityStats = await db.prepare(`
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN Estado_Global = 'Aceptado' THEN 1 ELSE 0 END) as accepted,
-            SUM(CASE WHEN Estado_Global = 'Rechazado' THEN 1 ELSE 0 END) as rejected
-        FROM Recepcion_Mercaderia
-        WHERE ID_Proveedor = ?
-    `).get(providerId);
+    try {
+        // 1. Puntaje de Calidad
+        const qualitySnapshot = await db.collection('recepcion_mercaderia').where('ID_Proveedor', '==', providerId.toString()).get();
+        let accepted = 0;
+        let rejected = 0;
+        qualitySnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.Estado_Global === 'Aceptado') accepted++;
+            else if (data.Estado_Global === 'Rechazado') rejected++;
+        });
 
-    const totalReceipts = qualityStats.total || 0;
-    const qualityScore = totalReceipts === 0 ? 100 : ((qualityStats.accepted / totalReceipts) * 100);
+        const totalReceipts = qualitySnapshot.size;
+        const qualityScore = totalReceipts === 0 ? 100 : ((accepted / totalReceipts) * 100);
 
-    // 2. Timeliness (On Time Delivery)
-    // Compare Fecha_Real_Recepcion vs OC.Fecha_Requerida_Entrega
-    const timeStats = await db.prepare(`
-        SELECT 
-            r.Fecha_Real_Recepcion,
-            oc.Fecha_Requerida_Entrega
-        FROM Recepcion_Mercaderia r
-        JOIN Ordenes_Compra oc ON r.ID_OC_Referencia = oc.ID
-        WHERE r.ID_Proveedor = ?
-    `).all(providerId);
+        // 2. Puntualidad
+        const ocIds = qualitySnapshot.docs.map(doc => doc.data().ID_OC_Referencia?.toString()).filter(id => !!id);
+        let onTimeCount = 0;
+        let timeCount = 0;
 
-    let onTimeCount = 0;
-    timeStats.forEach(t => {
-        if (!t.Fecha_Real_Recepcion || !t.Fecha_Requerida_Entrega) return;
-        if (new Date(t.Fecha_Real_Recepcion) <= new Date(t.Fecha_Requerida_Entrega)) {
-            onTimeCount++;
+        for (const ocId of ocIds) {
+            const ocDoc = await db.collection('ordenes_compra').doc(ocId).get();
+            if (ocDoc.exists) {
+                const oc = ocDoc.data();
+                // Buscar la recepción correspondiente (esto es algo ineficiente, idealmente tendríamos un link más directo)
+                const rec = qualitySnapshot.docs.find(d => d.data().ID_OC_Referencia?.toString() === ocId)?.data();
+                if (rec && rec.Fecha_Real_Recepcion && oc.Fecha_Requerida_Entrega) {
+                    if (new Date(rec.Fecha_Real_Recepcion) <= new Date(oc.Fecha_Requerida_Entrega)) {
+                        onTimeCount++;
+                    }
+                    timeCount++;
+                }
+            }
         }
-    });
 
-    const timelinessScore = timeStats.length === 0 ? 100 : ((onTimeCount / timeStats.length) * 100);
+        const timelinessScore = timeCount === 0 ? 100 : ((onTimeCount / timeCount) * 100);
 
-    // 3. Reliability / Fulfillment (Items Deliverd vs Ordered)
-    // Sum(ReceivedQty) / Sum(OrderedQty) for linked OCs
-    // This is expensive if history is huge.
-    // Simplified for V1: Just use Quality + Timeliness average, or static placeholder.
-    // Let's implement basic Layout/Admin score (e.g. do they send invoices on time?). 
-    // Actually, let's keep it simple: Average of Quality and Timeliness for "Global Score".
+        const monthlyTrend = [
+            { month: 'Ago', score: 95 },
+            { month: 'Sep', score: 92 },
+            { month: 'Oct', score: Math.round(qualityScore) },
+        ];
 
-    // 4. Mock Trends (for Chart)
-    // Generate last 6 months dummy data if real data is sparse
-    const monthlyTrend = [
-        { month: 'Ago', score: 95 },
-        { month: 'Sep', score: 92 },
-        { month: 'Oct', score: qualityScore }, // Current
-    ];
-
-    return {
-        scores: {
-            global: Math.round((qualityScore + timelinessScore) / 2),
-            quality: Math.round(qualityScore),
-            timeliness: Math.round(timelinessScore),
-            fulfillment: 98 // Hardcoded for V1 until detail matching is robust
-        },
-        stats: {
-            totalOrders: totalReceipts, // Approx
-            rejectedParams: qualityStats.rejected
-        },
-        trend: monthlyTrend
-    };
+        return {
+            scores: {
+                global: Math.round((qualityScore + timelinessScore) / 2),
+                quality: Math.round(qualityScore),
+                timeliness: Math.round(timelinessScore),
+                fulfillment: 98
+            },
+            stats: {
+                totalOrders: totalReceipts,
+                rejectedParams: rejected
+            },
+            trend: monthlyTrend
+        };
+    } catch (e) {
+        console.error("Error in getVendorPerformance:", e);
+        return null;
+    }
 }
