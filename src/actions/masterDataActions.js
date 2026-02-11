@@ -43,7 +43,7 @@ export async function createProveedor(data) {
         cuit, condicionIva, iibb, condicionIibb, agenteRetencion,
         categoria, diasEntrega, leadTime, minOrder,
         condicionPago, cbu, alias, banco,
-        vendedor, telefono, email, emailAdmin
+        vendedor, telefono, email, emailAdmin, whatsapp
     } = data;
 
     await db.collection('proveedores').add({
@@ -52,6 +52,7 @@ export async function createProveedor(data) {
         Categoria_Principal: categoria || null, Dias_Entrega: diasEntrega || '', Lead_Time: leadTime || 1, Pedido_Minimo: minOrder || 0,
         Condicion_Pago: condicionPago || '30 Dias FF', CBU: cbu || null, Alias: alias || null, Banco: banco || null,
         Nombre_Vendedor: vendedor || null, Telefono_Pedidos: telefono || null, Email_Pedidos: email || null, Email_Administracion: emailAdmin || null,
+        WhatsApp: whatsapp || null,
         createdAt: new Date().toISOString()
     });
 

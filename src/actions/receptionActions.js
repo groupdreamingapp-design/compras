@@ -155,7 +155,17 @@ export async function createReception(data) {
         batch.update(orderDocRef, { Estado: 'Recepcionada_Parcial' });
 
         await batch.commit();
+
+        // Enviar notificaciones de recepción
+        const { sendReceptionNotifications } = await import('@/services/whatsappNotifier');
+        const notificationResult = await sendReceptionNotifications(receptionId);
+
         revalidatePath('/compras/recepcion');
+
+        if (notificationResult.success && notificationResult.links?.length > 0) {
+            return { success: true, receptionId, whatsappLinks: notificationResult.links };
+        }
+
         return { success: true, receptionId };
 
     } catch (error) {

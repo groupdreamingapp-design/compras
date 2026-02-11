@@ -67,9 +67,24 @@ export async function updateOrderStatus(id, newStatus) {
     if (!db) return false;
     try {
         await db.collection('ordenes_compra').doc(id.toString()).update({ Estado: newStatus });
+
+        // Enviar notificaciones si el estado es "Enviada"
+        if (newStatus === 'Enviada') {
+            // Importar dinámicamente para evitar problemas de dependencias circulares
+            const { sendOCNotifications } = await import('@/services/whatsappNotifier');
+            const notificationResult = await sendOCNotifications(id);
+
+            if (notificationResult.success && notificationResult.links?.length > 0) {
+                // Los links se retornarán para que el cliente los abra
+                revalidatePath('/compras/ordenes');
+                return { success: true, whatsappLinks: notificationResult.links };
+            }
+        }
+
         revalidatePath('/compras/ordenes');
         return true;
     } catch (e) {
+        console.error('Error in updateOrderStatus:', e);
         return false;
     }
 }

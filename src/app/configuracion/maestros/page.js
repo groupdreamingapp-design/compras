@@ -1,28 +1,47 @@
 'use client';
-import React, { useState } from 'react';
-import { PlusCircle, Search, Save, Package, Truck, Layers, Download, Upload } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { PlusCircle, Search, Save, Package, Truck, Layers, Download, Upload, Bell } from 'lucide-react';
 import { createRubro, createSubrubro, createProveedor, createInsumo } from '../../../actions/masterDataActions';
 import { exportTableToCSV, importDataFromCSV } from '../../../actions/dataActions';
+import { getNotificationRecipients } from '../../../actions/notificationActions';
+import NotificationRecipientsManager from '../../../components/NotificationRecipientsManager';
 
 export default function ConfigMaestrosPage() {
     const [activeTab, setActiveTab] = useState('proveedores');
+    const [recipients, setRecipients] = useState([]);
+    const [loadingRecipients, setLoadingRecipients] = useState(false);
+
+    // Cargar destinatarios cuando se selecciona el tab de notificaciones
+    useEffect(() => {
+        if (activeTab === 'notificaciones') {
+            setLoadingRecipients(true);
+            getNotificationRecipients().then(data => {
+                setRecipients(data);
+                setLoadingRecipients(false);
+            });
+        }
+    }, [activeTab]);
 
     return (
         <div className="max-w-6xl mx-auto pb-20">
             <h1 className="text-3xl font-bold text-white mb-2">Maestros y Configuración</h1>
-            <p className="text-slate-400 mb-8">Administra proveedores, insumos y categorías del sistema.</p>
+            <p className="text-slate-400 mb-8">Administra proveedores, insumos, categorías y notificaciones del sistema.</p>
 
             {/* Tabs */}
             <div className="flex space-x-1 bg-slate-800/50 p-1 rounded-xl mb-8 w-fit">
                 <TabButton id="proveedores" label="Proveedores" icon={Truck} active={activeTab} onClick={setActiveTab} />
                 <TabButton id="rubros" label="Rubros" icon={Layers} active={activeTab} onClick={setActiveTab} />
                 <TabButton id="insumos" label="Insumos" icon={Package} active={activeTab} onClick={setActiveTab} />
+                <TabButton id="notificaciones" label="Notificaciones" icon={Bell} active={activeTab} onClick={setActiveTab} />
             </div>
 
             <div className="glass-card p-6 rounded-2xl min-h-[400px]">
                 {activeTab === 'proveedores' && <ProveedoresPanel />}
                 {activeTab === 'rubros' && <RubrosPanel />}
                 {activeTab === 'insumos' && <InsumosPanel />}
+                {activeTab === 'notificaciones' && (
+                    <NotificacionesPanel recipients={recipients} loading={loadingRecipients} />
+                )}
             </div>
         </div>
     );
@@ -173,7 +192,7 @@ function ProveedoresForm({ onCancel }) {
         // Financiero
         condicionPago: '30 Dias FF', cbu: '', alias: '', banco: '',
         // Contacto
-        vendedor: '', telefono: '', email: '', emailAdmin: ''
+        vendedor: '', telefono: '', email: '', emailAdmin: '', whatsapp: ''
     });
 
     const handleChange = (field, value) => {
@@ -290,10 +309,24 @@ function ProveedoresForm({ onCancel }) {
                         <div className="space-y-4 animate-in fade-in">
                             <Input label="Nombre Vendedor" value={formData.vendedor} onChange={v => handleChange('vendedor', v)} />
                             <div className="grid grid-cols-2 gap-4">
-                                <Input label="Teléfono Pedidos (WhatsApp)" value={formData.telefono} onChange={v => handleChange('telefono', v)} />
+                                <Input label="Teléfono Pedidos" value={formData.telefono} onChange={v => handleChange('telefono', v)} />
                                 <Input label="Email Pedidos" value={formData.email} onChange={v => handleChange('email', v)} />
                             </div>
                             <Input label="Email Administración (Pagos)" value={formData.emailAdmin} onChange={v => handleChange('emailAdmin', v)} />
+
+                            <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
+                                <label className="block text-sm font-medium text-blue-300 mb-2">
+                                    📱 WhatsApp para Notificaciones (con código de país)
+                                </label>
+                                <Input
+                                    value={formData.whatsapp}
+                                    onChange={v => handleChange('whatsapp', v)}
+                                    placeholder="+5491112345678"
+                                />
+                                <p className="text-xs text-blue-400 mt-2">
+                                    Este número recibirá notificaciones automáticas de OC y recepciones. Formato: +54 9 11 1234 5678 (sin espacios)
+                                </p>
+                            </div>
 
                             <button type="submit" className="btn-primary w-full flex justify-center mt-8">
                                 <Save className="w-5 h-5 mr-2" /> Guardar Ficha Completa
@@ -628,6 +661,25 @@ function InsumosPanel() {
                     )}
                 </form>
             </div>
+        </div>
+    );
+}
+
+function NotificacionesPanel({ recipients, loading }) {
+    return (
+        <div>
+            <div className="mb-6">
+                <h2 className="text-xl font-bold text-white mb-2">Destinatarios de Notificaciones WhatsApp</h2>
+                <p className="text-slate-400 text-sm">
+                    Configura los usuarios internos que recibirán notificaciones automáticas cuando se envíen órdenes de compra o se reciba mercadería.
+                </p>
+            </div>
+
+            {loading ? (
+                <div className="text-slate-500 text-center py-8">Cargando destinatarios...</div>
+            ) : (
+                <NotificationRecipientsManager initialRecipients={recipients} />
+            )}
         </div>
     );
 }
